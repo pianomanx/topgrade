@@ -9,6 +9,7 @@ environment:
   matrix:
     - TARGET: x86_64-pc-windows-msvc
 
+skip_non_tags: true
 install:
   - ps: >-
       If ($Env:TARGET -eq 'x86_64-pc-windows-gnu') {

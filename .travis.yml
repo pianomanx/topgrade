@@ -8,6 +8,7 @@ sudo: required
 
 # TODO Rust builds on stable by default, this can be
 # overridden on a case by case basis down below.
+if: tag IS present
 
 env:
   global:
