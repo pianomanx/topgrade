@@ -1,4 +1,22 @@
 #![allow(clippy::cognitive_complexity)]
+
+use std::env;
+use std::io;
+use std::process::exit;
+
+use anyhow::{anyhow, Result};
+use console::Key;
+use log::debug;
+use structopt::clap::crate_version;
+use structopt::StructOpt;
+
+use self::config::{CommandLineArgs, Config, Step};
+use self::error::StepFailed;
+#[cfg(all(windows, feature = "self-update"))]
+use self::error::Upgraded;
+use self::steps::{remote::*, *};
+use self::terminal::*;
+
 mod config;
 mod ctrlc;
 mod error;
@@ -13,23 +31,6 @@ mod self_update;
 mod steps;
 mod terminal;
 mod utils;
-
-use self::config::{CommandLineArgs, Config, Step};
-use self::error::StepFailed;
-#[cfg(all(windows, feature = "self-update"))]
-use self::error::Upgraded;
-
-use self::steps::{remote::*, *};
-use self::terminal::*;
-use anyhow::{anyhow, Result};
-use console::Key;
-use log::debug;
-
-use std::env;
-use std::io;
-use std::process::exit;
-use structopt::clap::crate_version;
-use structopt::StructOpt;
 
 fn run() -> Result<()> {
     ctrlc::set_handler();
@@ -134,11 +135,7 @@ fn run() -> Result<()> {
                 println!("Error detecting current distribution: {}", e);
             }
         }
-        runner.execute(Step::System, "etc-update", || {
-            linux::run_etc_update(sudo.as_ref(), run_type)
-        })?;
-
-        runner.execute(Step::Pacdiff, "pacdiff", || linux::run_pacdiff(sudo.as_ref(), run_type))?;
+        runner.execute(Step::ConfigUpdate, "config-update", || linux::run_config_update(&ctx))?;
 
         runner.execute(Step::BrewFormula, "Brew", || {
             unix::run_brew_formula(&ctx, unix::BrewVariant::Linux)
@@ -260,6 +257,7 @@ fn run() -> Result<()> {
         runner.execute(Step::Shell, "zr", || zsh::run_zr(&base_dirs, run_type))?;
         runner.execute(Step::Shell, "antibody", || zsh::run_antibody(run_type))?;
         runner.execute(Step::Shell, "antigen", || zsh::run_antigen(&base_dirs, run_type))?;
+        runner.execute(Step::Shell, "zgenom", || zsh::run_zgenom(&base_dirs, run_type))?;
         runner.execute(Step::Shell, "zplug", || zsh::run_zplug(&base_dirs, run_type))?;
         runner.execute(Step::Shell, "zinit", || zsh::run_zinit(&base_dirs, run_type))?;
         runner.execute(Step::Shell, "zim", || zsh::run_zim(&base_dirs, run_type))?;
@@ -292,10 +290,12 @@ fn run() -> Result<()> {
     runner.execute(Step::Choosenim, "choosenim", || generic::run_choosenim(&ctx))?;
     runner.execute(Step::Cargo, "cargo", || generic::run_cargo_update(&ctx))?;
     runner.execute(Step::Flutter, "Flutter", || generic::run_flutter_upgrade(run_type))?;
-    runner.execute(Step::Emacs, "Emacs", || emacs.upgrade(run_type))?;
+    runner.execute(Step::Go, "Go", || generic::run_go(run_type))?;
+    runner.execute(Step::Emacs, "Emacs", || emacs.upgrade(&ctx))?;
     runner.execute(Step::Opam, "opam", || generic::run_opam_update(run_type))?;
     runner.execute(Step::Vcpkg, "vcpkg", || generic::run_vcpkg_update(run_type))?;
     runner.execute(Step::Pipx, "pipx", || generic::run_pipx_update(run_type))?;
+    runner.execute(Step::Conda, "conda", || generic::run_conda_update(&ctx))?;
     runner.execute(Step::Pip3, "pip3", || generic::run_pip3_update(run_type))?;
     runner.execute(Step::Stack, "stack", || generic::run_stack_update(run_type))?;
     runner.execute(Step::Tlmgr, "tlmgr", || generic::run_tlmgr_update(&ctx))?;
@@ -309,8 +309,10 @@ fn run() -> Result<()> {
     runner.execute(Step::Vim, "vim", || vim::upgrade_vim(&base_dirs, &ctx))?;
     runner.execute(Step::Vim, "Neovim", || vim::upgrade_neovim(&base_dirs, &ctx))?;
     runner.execute(Step::Vim, "voom", || vim::run_voom(&base_dirs, run_type))?;
+    runner.execute(Step::Kakoune, "Kakoune", || kakoune::upgrade_kak_plug(&ctx))?;
     runner.execute(Step::Node, "npm", || node::run_npm_upgrade(&ctx))?;
     runner.execute(Step::Pnpm, "pnpm", || node::pnpm_global_update(&ctx))?;
+    runner.execute(Step::Containers, "Containers", || containers::run_containers(&ctx))?;
     runner.execute(Step::Deno, "deno", || node::deno_upgrade(&ctx))?;
     runner.execute(Step::Composer, "composer", || generic::run_composer_update(&ctx))?;
     runner.execute(Step::Krew, "krew", || generic::run_krew_upgrade(run_type))?;
@@ -328,6 +330,7 @@ fn run() -> Result<()> {
 
     #[cfg(target_os = "linux")]
     {
+        runner.execute(Step::Toolbx, "toolbx", || toolbx::run_toolbx(&ctx))?;
         runner.execute(Step::Flatpak, "Flatpak", || linux::flatpak_update(&ctx))?;
         runner.execute(Step::Snap, "snap", || linux::run_snap(sudo.as_ref(), run_type))?;
         runner.execute(Step::Pacstall, "pacstall", || linux::run_pacstall(&ctx))?;

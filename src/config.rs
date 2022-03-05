@@ -1,18 +1,21 @@
-use super::utils::editor;
+use std::collections::BTreeMap;
+use std::fs::write;
+use std::path::PathBuf;
+use std::process::Command;
+use std::{env, fs};
+
 use anyhow::Result;
 use directories::BaseDirs;
 use log::{debug, LevelFilter};
 use pretty_env_logger::formatted_timed_builder;
 use regex::Regex;
 use serde::Deserialize;
-use std::collections::BTreeMap;
-use std::fs::write;
-use std::path::PathBuf;
-use std::process::Command;
-use std::{env, fs};
 use structopt::StructOpt;
 use strum::{EnumIter, EnumString, EnumVariantNames, IntoEnumIterator, VariantNames};
+use sys_info::hostname;
 use which_crate::which;
+
+use super::utils::editor;
 
 pub static EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");
 
@@ -73,6 +76,9 @@ pub enum Step {
     Chocolatey,
     Choosenim,
     Composer,
+    Conda,
+    ConfigUpdate,
+    Containers,
     CustomCommands,
     Deno,
     Dotnet,
@@ -84,10 +90,12 @@ pub enum Step {
     Gcloud,
     Gem,
     GitRepos,
+    Go,
     Haxelib,
     GnomeShellExtensions,
     HomeManager,
     Jetpack,
+    Kakoune,
     Krew,
     Macports,
     Mas,
@@ -96,7 +104,6 @@ pub enum Step {
     Nix,
     Node,
     Opam,
-    Pacdiff,
     Pacstall,
     Pearl,
     Pipx,
@@ -122,6 +129,7 @@ pub enum Step {
     Tldr,
     Tlmgr,
     Tmux,
+    Toolbx,
     Vagrant,
     Vcpkg,
     Vim,
@@ -390,9 +398,9 @@ pub struct CommandLineArgs {
     #[structopt(short = "k", long = "keep")]
     keep_at_end: bool,
 
-    /// Say yes to package manager's prompt (experimental)
+    /// Say yes to package manager's prompt
     #[structopt(short = "y", long = "yes")]
-    yes: bool,
+    yes: Option<Vec<Step>>,
 
     /// Don't pull the predefined git repos
     #[structopt(long = "disable-predefined-git-repos")]
@@ -507,20 +515,22 @@ impl Config {
     }
 
     fn allowed_steps(opt: &CommandLineArgs, config_file: &ConfigFile) -> Vec<Step> {
-        let mut enabled_steps: Vec<Step> = if !opt.only.is_empty() {
-            opt.only.clone()
-        } else {
-            config_file
-                .only
-                .as_ref()
-                .map_or_else(|| Step::iter().collect(), |v| v.clone())
-        };
+        let mut enabled_steps: Vec<Step> = Vec::new();
+        enabled_steps.extend(&opt.only);
 
-        let disabled_steps: Vec<Step> = if !opt.disable.is_empty() {
-            opt.disable.clone()
-        } else {
-            config_file.disable.as_ref().map_or_else(Vec::new, |v| v.clone())
-        };
+        if let Some(only) = config_file.only.as_ref() {
+            enabled_steps.extend(only)
+        }
+
+        if enabled_steps.is_empty() {
+            enabled_steps.extend(Step::iter());
+        }
+
+        let mut disabled_steps: Vec<Step> = Vec::new();
+        disabled_steps.extend(&opt.disable);
+        if let Some(disabled) = config_file.disable.as_ref() {
+            disabled_steps.extend(disabled);
+        }
 
         enabled_steps.retain(|e| !disabled_steps.contains(e) || opt.only.contains(e));
         enabled_steps
@@ -584,8 +594,20 @@ impl Config {
 
     /// Whether to say yes to package managers
     #[allow(dead_code)]
-    pub fn yes(&self) -> bool {
-        self.config_file.assume_yes.unwrap_or(self.opt.yes)
+    pub fn yes(&self, step: Step) -> bool {
+        if let Some(yes) = self.config_file.assume_yes {
+            return yes;
+        }
+
+        if let Some(yes_list) = &self.opt.yes {
+            if yes_list.is_empty() {
+                return true;
+            }
+
+            return yes_list.contains(&step);
+        }
+
+        false
     }
 
     /// Bash-it branch
@@ -826,10 +848,16 @@ impl Config {
     str_value!(linux, emerge_update_flags);
 
     pub fn should_execute_remote(&self, remote: &str) -> bool {
-        self.opt
-            .remote_host_limit
-            .as_ref()
-            .map(|h| h.is_match(remote))
-            .unwrap_or(true)
+        if let Ok(hostname) = hostname() {
+            if remote == hostname {
+                return false;
+            }
+        }
+
+        if let Some(limit) = self.opt.remote_host_limit.as_ref() {
+            return limit.is_match(remote);
+        }
+
+        true
     }
 }

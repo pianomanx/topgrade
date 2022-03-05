@@ -1,4 +1,15 @@
 #![allow(unused_imports)]
+
+use std::path::PathBuf;
+use std::process::Command;
+use std::{env, path::Path};
+use std::{fs, io::Write};
+
+use anyhow::Result;
+use directories::BaseDirs;
+use log::debug;
+use tempfile::tempfile_in;
+
 use crate::execution_context::ExecutionContext;
 use crate::executor::{CommandExt, ExecutorOutput, RunType};
 use crate::terminal::{print_separator, shell};
@@ -7,14 +18,6 @@ use crate::{
     error::{SkipStep, TopgradeError},
     terminal::print_warning,
 };
-use anyhow::Result;
-use directories::BaseDirs;
-use log::debug;
-use std::path::PathBuf;
-use std::process::Command;
-use std::{env, path::Path};
-use std::{fs, io::Write};
-use tempfile::tempfile_in;
 
 pub fn run_cargo_update(ctx: &ExecutionContext) -> Result<()> {
     let cargo_dir = env::var_os("CARGO_HOME")
@@ -58,6 +61,19 @@ pub fn run_flutter_upgrade(run_type: RunType) -> Result<()> {
 
     print_separator("Flutter");
     run_type.execute(&flutter).arg("upgrade").check_run()
+}
+
+pub fn run_go(run_type: RunType) -> Result<()> {
+    let go = utils::require("go")?;
+    let gopath = run_type.execute(&go).args(&["env", "GOPATH"]).check_output()?;
+
+    let go_global_update = utils::require("go-global-update")
+        .unwrap_or_else(|_| PathBuf::from(gopath).join("bin/go-global-update"))
+        .require()?;
+
+    print_separator("Go");
+
+    run_type.execute(&go_global_update).check_run()
 }
 
 pub fn run_gem(base_dirs: &BaseDirs, run_type: RunType) -> Result<()> {
@@ -224,6 +240,26 @@ pub fn run_pipx_update(run_type: RunType) -> Result<()> {
     print_separator("pipx");
 
     run_type.execute(&pipx).arg("upgrade-all").check_run()
+}
+
+pub fn run_conda_update(ctx: &ExecutionContext) -> Result<()> {
+    let conda = utils::require("conda")?;
+
+    let output = Command::new("conda")
+        .args(&["config", "--show", "auto_activate_base"])
+        .output()?;
+    let string_output = String::from_utf8(output.stdout)?;
+    debug!("Conda output: {}", string_output);
+    if string_output.contains("False") {
+        return Err(SkipStep("auto_activate_base is set to False".to_string()).into());
+    }
+
+    print_separator("Conda");
+
+    ctx.run_type()
+        .execute(&conda)
+        .args(&["update", "--all", "-y"])
+        .check_run()
 }
 
 pub fn run_pip3_update(run_type: RunType) -> Result<()> {

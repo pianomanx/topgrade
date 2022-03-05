@@ -1,12 +1,15 @@
-use crate::execution_context::ExecutionContext;
-use crate::executor::CommandExt;
-use crate::terminal::{is_dumb, print_separator};
-use crate::utils::{require_option, which, PathExt};
-use anyhow::Result;
 #[cfg(windows)]
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+
+use anyhow::Result;
+
+use crate::execution_context::ExecutionContext;
+use crate::executor::CommandExt;
+use crate::terminal::{is_dumb, print_separator};
+use crate::utils::{require_option, which, PathExt};
+use crate::Step;
 
 pub struct Powershell {
     path: Option<PathBuf>,
@@ -69,8 +72,8 @@ impl Powershell {
             cmd.push("-Verbose")
         }
 
-        if ctx.config().yes() {
-            cmd.push("-Confirm")
+        if ctx.config().yes(Step::Powershell) {
+            cmd.push("-Force")
         }
 
         println!("Updating modules...");
